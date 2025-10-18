@@ -1,11 +1,12 @@
 # printer_monitor.py
-from DrissionPage import ChromiumPage
+from DrissionPage import ChromiumPage, ChromiumOptions
 import time
 import openpyxl
 from datetime import datetime
 import requests
 
 # ==================== 配置区 ====================
+PRINTER_IP = "10.85.10.251"
 EXCEL_FILE = "打印机使用状态记录.xlsx"
 WECHAT_WEBHOOK = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的企业微信webhook-key"
 GOTIFY_URL = "http://10.85.30.24:8385/message?token=A5gkYdBfPJs56z1"
@@ -47,7 +48,6 @@ def write_to_excel(data):
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "打印记录"
-            # 写入表头
             headers = ["采集时间", "首次打印日期", "总页数", "黑白总页数", "彩色总页数", "双面打印", "单面打印"]
             ws.append(headers)
 
@@ -87,8 +87,8 @@ def send_wechat_alert(data):
 """.strip()
 
     payload = {
-        "text": msg,
-        "msgtype": "text"
+        "msgtype": "text",
+        "text": {"content": msg}
     }
 
     try:
@@ -118,22 +118,36 @@ def send_gotify_alert(data):
 
 
 def main():
-    page = ChromiumPage("127.0.0.1:9222")
-    tab = page.tab
+    # === 设置浏览器选项，自动忽略证书错误 ===
+    co = ChromiumOptions()
+    co.set_argument('--ignore-certificate-errors')
+    co.set_argument('--allow-running-insecure-content')
+    # 可选：隐藏浏览器窗口（无头模式）
+    # co.set_headless(True)
 
-    tab.get("https://10.85.10.251/PRESENTATION/ADVANCED/COMMON/TOP")
-    print("✅ 已进入打印机主页面")
-    time.sleep(3)
+    # ✅ 修复：直接传入 co，而不是 options=co
+    page = ChromiumPage(co)
 
-    tab.ele('text:使用状态').click()
-    print("🖱️ 已点击【使用状态】")
-    time.sleep(2)
+    print("✅ 浏览器已启动（忽略证书错误）")
 
-    print("\n🔍 正在进入 target_INFO frame...")
     try:
+        # 访问打印机主页面
+        page.get(f"https://10.85.10.251/PRESENTATION/ADVANCED/COMMON/TOP")
+        print("✅ 已进入打印机主页面")
+        time.sleep(3)
+
+        # 点击【使用状态】
+        tab = page.tab
+        tab.ele('text:使用状态').click()
+        print("🖱️ 已点击【使用状态】")
+        time.sleep(2)
+
+        # 进入 target_INFO frame
+        print("\n🔍 正在进入 target_INFO frame...")
         frame = page.get_frame('target_INFO', timeout=10)
         print("✅ 成功进入 frame")
 
+        # 提取数据
         usage_data = extract_usage_status(frame)
         print("\n📊 提取到数据:", usage_data)
 
@@ -146,7 +160,9 @@ def main():
 
     except Exception as e:
         print(f"❌ 操作失败: {e}")
-
+    finally:
+        page.quit()  # 关闭浏览器
+        print("🟢 浏览器已关闭")
 
 if __name__ == "__main__":
     main()
